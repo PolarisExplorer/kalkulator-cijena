@@ -1,0 +1,217 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kalkulator Cijena</title>
+    <style>
+        body {
+            background-color: #A3D8FF;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        .container {
+            background-color: #A3D8FF;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        .input-group {
+            margin-bottom: 15px;
+        }
+        label {
+            font-size: 25px;
+            margin-right: 10px;
+        }
+        input {
+            font-size: 25px;
+            padding: 5px;
+            width: 150px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        button {
+            font-size: 18px;
+            padding: 10px 20px;
+            margin: 5px;
+            background-color: #94FFD8;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #80E6C0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: center;
+            font-size: 25px;
+        }
+        th {
+            background-color: #94FFD8;
+        }
+        .extra-options {
+            display: none;
+            margin-top: 15px;
+        }
+        .extra-options.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="input-group">
+            <label for="cena">Osnovna cijena:</label>
+            <input type="number" id="cena" step="0.01" inputmode="numeric" placeholder="npr. 100.00" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');" onfocus="this.select();">
+        </div>
+        <div>
+            <button onclick="toggleExtraOptions()">Još opcija</button>
+            <button onclick="izracunaj()">Izračunaj</button>
+        </div>
+        <div class="extra-options" id="extraOptions">
+            <div class="input-group">
+                <label for="rabat">Rabat (%):</label>
+                <input type="number" id="rabat" step="0.01" inputmode="numeric" placeholder="npr. 10" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');" onfocus="this.select();">
+            </div>
+            <div class="input-group">
+                <label for="nova_marza_naziv">Nova marža (npr. 12%):</label>
+                <input type="text" id="nova_marza_naziv" inputmode="numeric" placeholder="npr. 12%" onfocus="this.select();">
+            </div>
+            <div class="input-group">
+                <label for="nova_marza_vrijednost">Vrijednost marže (npr. 0.12):</label>
+                <input type="number" id="nova_marza_vrijednost" step="0.01" inputmode="numeric" placeholder="npr. 0.12" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');" onfocus="this.select();">
+            </div>
+            <div>
+                <button onclick="postaviMarzu(true)">Marža sa PDV-om</button>
+                <button onclick="postaviMarzu(false)">Samo marža</button>
+            </div>
+        </div>
+        <table id="rezultat">
+            <tr>
+                <th>Marža</th>
+                <th>Cijena</th>
+            </tr>
+        </table>
+    </div>
+
+    <script>
+        let marze = {
+            "8%": 0.08,
+            "12%": 0.12,
+            "20%": 0.20,
+            "30%": 0.30,
+            "Samo 10%": 0.10,
+            "Samo 20%": 0.20
+        };
+
+        const boje = [
+            "#ff0000", // 1. red - crvena
+            "#ff8700", // 2. red - narančasta
+            "#ffd300", // 3. red - žuta
+            "#deff0a", // 4. red - svjetlo zelena
+            "#147df5", // 5. red - plava
+            "#be0aff"  // 6. red - ljubičasta
+        ];
+
+        let extraOptionsVisible = false;
+
+        function toggleExtraOptions() {
+            const extraOptions = document.getElementById("extraOptions");
+            extraOptionsVisible = !extraOptionsVisible;
+            extraOptions.classList.toggle("show", extraOptionsVisible);
+        }
+
+        function postaviMarzu(saPdv) {
+            const naziv = document.getElementById("nova_marza_naziv").value.trim();
+            const vrijednost = parseFloat(document.getElementById("nova_marza_vrijednost").value.replace(",", "."));
+            if (naziv && !isNaN(vrijednost)) {
+                marze[naziv + (saPdv ? "" : " Samo")] = vrijednost;
+                document.getElementById("nova_marza_naziv").value = "";
+                document.getElementById("nova_marza_vrijednost").value = "";
+                izracunaj();
+            }
+        }
+
+        function izracunaj() {
+            const cena = parseFloat(document.getElementById("cena").value.replace(",", ".")) || 0;
+            const rabat = parseFloat(document.getElementById("rabat").value.replace(",", ".")) || 0;
+            const procenat = 0.17;
+
+            let konačnaCijena = cena;
+            if (rabat > 0 && rabat <= 100) {
+                konačnaCijena *= (1 - rabat / 100);
+            }
+
+            const tabela = document.getElementById("rezultat");
+            while (tabela.rows.length > 1) {
+                tabela.deleteRow(1);
+            }
+
+            let indexBoje = 0;
+            for (let [naziv, marza] of Object.entries(marze)) {
+                let finalnaCijena = konačnaCijena * (naziv.includes("Samo") ? (1 + marza) : (1 + procenat) * (1 + marza));
+                let row = tabela.insertRow();
+                let cell1 = row.insertCell(0);
+                let cell2 = row.insertCell(1);
+                cell1.innerText = naziv;
+                cell2.innerText = finalnaCijena.toFixed(2) + " KM";
+
+                // Postavljanje boje reda prema redoslijedu
+                row.style.backgroundColor = boje[indexBoje];
+                indexBoje = (indexBoje + 1) % boje.length; // Ciklički prelazak na sljedeću boju
+            }
+        }
+    </script>
+</body>
+</html>
