@@ -1,43 +1,4 @@
-<script type="text/javascript">
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-          return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-            try {
-                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                var firstSheetName = workbook.SheetNames[0];
-                var worksheet = workbook.Sheets[firstSheetName];
-
-                // Convert sheet to JSON to filter blank rows
-                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                // Filter out blank rows (rows where all cells are empty, null, or undefined)
-                var filteredData = jsonData.filter(row => row.some(filledCell));
-
-                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
-                var headerRowIndex = filteredData.findIndex((row, index) =>
-                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                );
-                // Fallback
-                if (headerRowIndex === -1 || headerRowIndex > 25) {
-                  headerRowIndex = 0;
-                }
-
-                // Convert filtered JSON back to CSV
-                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
-                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                return csv;
-            } catch (e) {
-                console.error(e);
-                return "";
-            }
-        }
-        return gk_fileData[filename] || "";
-        }
-        </script><!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -113,7 +74,7 @@
     <div class="container">
         <div class="input-group">
             <label for="cena">Osnovna cijena:</label>
-            <input type="number" id="cena" step="0.01" inputmode="numeric" placeholder="npr. 100.00" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');" onfocus="this.select();">
+            <input type="number" id="cena" step="0.01" inputmode="decimal" placeholder="npr. 10.00" onfocus="this.select();">
         </div>
         <div>
             <button onclick="toggleExtraOptions()">Još opcija</button>
@@ -122,15 +83,11 @@
         <div class="extra-options" id="extraOptions">
             <div class="input-group">
                 <label for="rabat">Rabat (%):</label>
-                <input type="number" id="rabat" step="0.01" inputmode="numeric" placeholder="npr. 10" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');" onfocus="this.select();">
+                <input type="number" id="rabat" step="0.01" inputmode="decimal" placeholder="npr. 10.00" onfocus="this.select();">
             </div>
             <div class="input-group">
-                <label for="nova_marza_naziv">Nova marža (npr. 12%):</label>
-                <input type="text" id="nova_marza_naziv" inputmode="numeric" placeholder="npr. 12%" onfocus="this.select();">
-            </div>
-            <div class="input-group">
-                <label for="nova_marza_vrijednost">Vrijednost marže (npr. 0.12):</label>
-                <input type="number" id="nova_marza_vrijednost" step="0.01" inputmode="numeric" placeholder="npr. 0.12" oninput="this.value = this.value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');" onfocus="this.select();">
+                <label for="nova_marza">Nova marža (%):</label>
+                <input type="number" id="nova_marza" step="0.01" inputmode="decimal" placeholder="npr. 20.00" onfocus="this.select();">
             </div>
             <div>
                 <button onclick="postaviMarzu(true)">Marža sa PDV-om</button>
@@ -147,12 +104,12 @@
 
     <script>
         let marze = {
-            "8%": 0.08,
-            "12%": 0.12,
-            "20%": 0.20,
-            "30%": 0.30,
-            "Samo 10%": 0.10,
-            "Samo 20%": 0.20
+            "8%": { vrijednost: 0.08, saPdv: true },
+            "12%": { vrijednost: 0.12, saPdv: true },
+            "20%": { vrijednost: 0.20, saPdv: true },
+            "30%": { vrijednost: 0.30, saPdv: true },
+            "Samo 10%": { vrijednost: 0.10, saPdv: false },
+            "Samo 20%": { vrijednost: 0.20, saPdv: false }
         };
 
         const boje = [
@@ -173,12 +130,12 @@
         }
 
         function postaviMarzu(saPdv) {
-            const naziv = document.getElementById("nova_marza_naziv").value.trim();
-            const vrijednost = parseFloat(document.getElementById("nova_marza_vrijednost").value.replace(",", "."));
-            if (naziv && !isNaN(vrijednost)) {
-                marze[naziv + (saPdv ? "" : " Samo")] = vrijednost;
-                document.getElementById("nova_marza_naziv").value = "";
-                document.getElementById("nova_marza_vrijednost").value = "";
+            const novaMarza = parseFloat(document.getElementById("nova_marza").value.replace(",", ".")) || 0;
+            if (novaMarza > 0) {
+                const naziv = `${novaMarza}%${saPdv ? "" : " Samo"}`;
+                const vrijednost = novaMarza / 100;
+                marze[naziv] = { vrijednost, saPdv };
+                document.getElementById("nova_marza").value = "";
                 izracunaj();
             }
         }
@@ -186,7 +143,7 @@
         function izracunaj() {
             const cena = parseFloat(document.getElementById("cena").value.replace(",", ".")) || 0;
             const rabat = parseFloat(document.getElementById("rabat").value.replace(",", ".")) || 0;
-            const procenat = 0.17;
+            const pdv = 0.17;
 
             let konačnaCijena = cena;
             if (rabat > 0 && rabat <= 100) {
@@ -200,16 +157,19 @@
 
             let indexBoje = 0;
             for (let [naziv, marza] of Object.entries(marze)) {
-                let finalnaCijena = konačnaCijena * (naziv.includes("Samo") ? (1 + marza) : (1 + procenat) * (1 + marza));
+                let finalnaCijena = konačnaCijena;
+                finalnaCijena *= (1 + marza.vrijednost); // Dodaj maržu
+                if (marza.saPdv) {
+                    finalnaCijena *= (1 + pdv); // Dodaj PDV ako je saPdv
+                }
                 let row = tabela.insertRow();
                 let cell1 = row.insertCell(0);
                 let cell2 = row.insertCell(1);
                 cell1.innerText = naziv;
                 cell2.innerText = finalnaCijena.toFixed(2) + " KM";
 
-                // Postavljanje boje reda prema redoslijedu
                 row.style.backgroundColor = boje[indexBoje];
-                indexBoje = (indexBoje + 1) % boje.length; // Ciklički prelazak na sljedeću boju
+                indexBoje = (indexBoje + 1) % boje.length;
             }
         }
     </script>
